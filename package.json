@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "A Vite plugin to seamlessly integrate Pug for multi-page applications, on-the-fly development server compilation, and component templating.",
   "license": "MIT",
-  "author": "rstp",
+  "author": "Hwaiteu",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
