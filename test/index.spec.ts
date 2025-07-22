@@ -1,4 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from 'vitest';
 import type { Plugin, ViteDevServer, HmrContext } from 'vite';
 import { viteConvertPugInHtml } from '../src';
 import { resolve } from 'path';
@@ -77,10 +86,16 @@ describe('viteConvertPugInHtml', () => {
 
       expect(mockRollupContext.emitFile).toHaveBeenCalledTimes(2);
       expect(mockRollupContext.emitFile).toHaveBeenCalledWith(
-        expect.objectContaining({ fileName: 'index.html', source: expect.stringContaining('<h1>Main Page</h1>') }),
+        expect.objectContaining({
+          fileName: 'index.html',
+          source: expect.stringContaining('<h1>Main Page</h1>'),
+        }),
       );
       expect(mockRollupContext.emitFile).toHaveBeenCalledWith(
-        expect.objectContaining({ fileName: 'about.html', source: expect.stringContaining('<h1>About Page</h1>') }),
+        expect.objectContaining({
+          fileName: 'about.html',
+          source: expect.stringContaining('<h1>About Page</h1>'),
+        }),
       );
     });
 
@@ -150,10 +165,19 @@ describe('viteConvertPugInHtml', () => {
 
     beforeEach(() => {
       mockServer = {
-        config: { root: testProjectRoot },
+        config: {
+          root: testProjectRoot,
+          logger: {
+            error: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+          },
+        },
         middlewares: { use: vi.fn((m) => (middleware = m)) },
         transformIndexHtml: vi.fn((_url, html) => Promise.resolve(html)),
-        ws: { send: vi.fn() },
+        ws: {
+          send: vi.fn(),
+        },
       } as unknown as ViteDevServer;
 
       const plugin = viteConvertPugInHtml({ pages: {} }) as Plugin;
@@ -181,7 +205,9 @@ describe('viteConvertPugInHtml', () => {
       const res = { setHeader: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
       const next = vi.fn();
       await middleware(req, res, next);
-      expect(res.end).toHaveBeenCalledWith(expect.stringContaining('<h1>About Page</h1>'));
+      expect(res.end).toHaveBeenCalledWith(
+        expect.stringContaining('<h1>About Page</h1>'),
+      );
       expect(next).not.toHaveBeenCalled();
     });
 
@@ -199,7 +225,9 @@ describe('viteConvertPugInHtml', () => {
       const res = { end: vi.fn() } as unknown as ServerResponse;
       const next = vi.fn();
       await middleware(req, res, next);
-      expect(mockServer.ws.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+      expect(mockServer.ws.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error' }),
+      );
       expect(next).toHaveBeenCalledWith(expect.any(Error));
     });
   });
@@ -211,12 +239,24 @@ describe('viteConvertPugInHtml', () => {
       const mockContext: HmrContext = {
         file: resolve(testProjectRoot, 'pages/about.pug'),
         timestamp: Date.now(),
-        server: { ws: { send: vi.fn() } } as any,
+        server: {
+          ws: { send: vi.fn() },
+          config: {
+            logger: {
+              error: vi.fn(),
+              info: vi.fn(),
+              warn: vi.fn(),
+            },
+          },
+        } as any,
         read: vi.fn(),
         modules: [],
       };
       (plugin.handleHotUpdate as any)(mockContext);
-      expect(mockContext.server.ws.send).toHaveBeenCalledWith({ type: 'full-reload', path: '*' });
+      expect(mockContext.server.ws.send).toHaveBeenCalledWith({
+        type: 'full-reload',
+        path: '*',
+      });
     });
 
     it('should do nothing for non-pug file changes', () => {
@@ -224,7 +264,18 @@ describe('viteConvertPugInHtml', () => {
       const mockContext: HmrContext = {
         file: resolve(testProjectRoot, 'main.js'),
         timestamp: Date.now(),
-        server: { ws: { send: vi.fn() } } as any,
+        server: {
+          ws: {
+            send: vi.fn(),
+          },
+          config: {
+            logger: {
+              error: vi.fn(),
+              info: vi.fn(),
+              warn: vi.fn(),
+            },
+          },
+        } as any,
         read: vi.fn(),
         modules: [],
       };
