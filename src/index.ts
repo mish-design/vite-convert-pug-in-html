@@ -1,9 +1,20 @@
 import { type Options as PugOptions, render } from 'pug';
-import { resolve } from 'path';
+import { relative, resolve } from 'path';
 import fs from 'fs';
-import type { Plugin, ResolvedConfig, ViteDevServer, HmrContext, Connect } from 'vite';
+import {
+  type Plugin,
+  type ResolvedConfig,
+  type ViteDevServer,
+  type HmrContext,
+  type Connect,
+  type Logger,
+  normalizePath,
+} from 'vite';
 import type { ServerResponse } from 'http';
 import { parse } from 'node-html-parser';
+import pc from 'picocolors';
+
+const { cyan, red, green } = pc;
 
 type Replacement = {
   css?: string;
@@ -18,12 +29,14 @@ type PluginOptions = {
 
 export function viteConvertPugInHtml(options: PluginOptions): Plugin {
   let viteRoot: string;
+  let logger: Logger;
 
   return {
     name: 'vite-convert-pug-in-html',
 
     configResolved(resolvedConfig: ResolvedConfig) {
       viteRoot = resolvedConfig.root;
+      logger = resolvedConfig.logger;
     },
 
     buildStart() {
@@ -39,7 +52,7 @@ export function viteConvertPugInHtml(options: PluginOptions): Plugin {
             filename: id,
             pretty: true,
             basedir: viteRoot,
-            ...options.pugOptions
+            ...options.pugOptions,
           });
 
           const root = parse(html);
@@ -77,8 +90,12 @@ export function viteConvertPugInHtml(options: PluginOptions): Plugin {
             map: null,
           };
         } catch (e) {
-          console.error(`Pug Error in ${id}:\n`, e);
-          this.error((e as Error).message);
+          const error = e as Error;
+          logger.error(`${red('Pug Error in ' + id)}`, {
+            timestamp: true,
+            error: error,
+          });
+          this.error(error);
         }
       }
       return null;
@@ -150,7 +167,11 @@ export function viteConvertPugInHtml(options: PluginOptions): Plugin {
               id: finalPugPath,
             },
           });
-          console.error(`[vite-pug-plugin] Error rendering ${finalPugPath}:\n`, error);
+          server.config.logger.error(
+            `${cyan('[vite-convert-pug-in-html]')}: ${red(
+              'Error rendering ' + finalPugPath + '\n' + error,
+            )}`,
+          );
           next(error);
         }
       };
@@ -158,12 +179,13 @@ export function viteConvertPugInHtml(options: PluginOptions): Plugin {
       server.middlewares.use(handlePugRequest);
     },
 
-    handleHotUpdate(ctx: HmrContext): void {
-      if (ctx.file.endsWith('.pug')) {
-        console.log(
-          `[vite-convert-pug-in-html]: Update ${ctx.file}`,
+    handleHotUpdate({ file, server }: HmrContext): void {
+      if (file.endsWith('.pug')) {
+        const relativePath = normalizePath(relative(viteRoot, file));
+        server.config.logger.info(
+          `${cyan('[vite-convert-pug-in-html]')}: Update ${green(relativePath)}`,
         );
-        ctx.server.ws.send({
+        server.ws.send({
           type: 'full-reload',
           path: '*',
         });
