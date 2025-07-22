@@ -236,6 +236,14 @@ describe('viteConvertPugInHtml', () => {
   describe('handleHotUpdate hook', () => {
     it('should trigger a full-reload for .pug file changes', () => {
       const plugin = viteConvertPugInHtml({ pages: {} });
+
+      if (plugin.configResolved && typeof plugin.configResolved === 'function') {
+        (plugin.configResolved as any)({
+          root: testProjectRoot,
+          logger: { info: vi.fn() }
+        });
+      }
+
       const mockContext: HmrContext = {
         file: resolve(testProjectRoot, 'pages/about.pug'),
         timestamp: Date.now(),
