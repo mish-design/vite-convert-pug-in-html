@@ -34,7 +34,7 @@
   },
   "homepage": "https://github.com/mish-design/vite-convert-pug-in-html#readme",
   "dependencies": {
-    "node-html-parser": "^6.1.13",
+    "node-html-parser": "^7.0.1",
     "picocolors": "^1.1.1",
     "pug": "^3.0.0"
   },
