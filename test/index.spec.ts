@@ -8,7 +8,7 @@ import {
   beforeAll,
   afterAll,
 } from 'vitest';
-import type { Plugin, ViteDevServer, HmrContext } from 'vite';
+import type { Plugin, ViteDevServer, HmrContext, Alias } from 'vite';
 import { viteConvertPugInHtml } from '../src';
 import { resolve } from 'path';
 import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
@@ -16,6 +16,7 @@ import type { Connect } from 'vite';
 import type { ServerResponse } from 'http';
 
 const testProjectRoot = resolve(process.cwd(), '.vitest-project-root');
+const srcRoot = resolve(testProjectRoot, 'src');
 
 const filesContent = {
   'index.pug': `
@@ -43,6 +44,23 @@ html
     //- Невалидный синтаксис pug
     div(
 `,
+  'src/components/header.pug': 'header This is the header from a component',
+  'src/components/footer.pug': 'footer This is the footer',
+  'pages/with-alias.pug': `
+doctype html
+html
+  body
+    include @/components/header.pug
+    p Page content
+    include @/components/footer.pug
+`,
+  'pages/with-relative.pug': `
+doctype html
+html
+  body
+    include ../src/components/header.pug
+    p Page with relative path
+`,
 };
 
 describe('viteConvertPugInHtml', () => {
@@ -52,6 +70,7 @@ describe('viteConvertPugInHtml', () => {
     }
     mkdirSync(testProjectRoot, { recursive: true });
     mkdirSync(resolve(testProjectRoot, 'pages'), { recursive: true });
+    mkdirSync(resolve(srcRoot, 'components'), { recursive: true });
   });
 
   afterAll(() => {
@@ -184,9 +203,9 @@ describe('viteConvertPugInHtml', () => {
       const configureServerHook = plugin.configureServer;
       if (configureServerHook) {
         if (typeof configureServerHook === 'function') {
-          configureServerHook(mockServer);
+          configureServerHook.call(null, mockServer);
         } else {
-          configureServerHook.handler(mockServer);
+          configureServerHook.handler.call(null, mockServer);
         }
       }
     });
@@ -232,6 +251,98 @@ describe('viteConvertPugInHtml', () => {
     });
   });
 
+  // --- ТЕСТЫ ДЛЯ ALIAS---
+  describe('with aliases', () => {
+    const aliases: Alias[] = [{ find: '@', replacement: srcRoot }];
+
+    it('buildStart should correctly resolve includes with aliases', async () => {
+      const mockRollupContext = { emitFile: vi.fn(), meta: { watchMode: false } };
+      const plugin = viteConvertPugInHtml({
+        pages: {
+          'with-alias': 'pages/with-alias.pug',
+        },
+      });
+
+      (plugin.configResolved as any)({
+        root: testProjectRoot,
+        resolve: { alias: aliases },
+      });
+
+      await (plugin.buildStart as any).call(mockRollupContext);
+
+      expect(mockRollupContext.emitFile).toHaveBeenCalledTimes(1);
+      const emittedFile = mockRollupContext.emitFile.mock.calls[0][0];
+      expect(emittedFile.fileName).toBe('with-alias.html');
+      expect(emittedFile.source).toContain(
+        '<header>This is the header from a component</header>',
+      );
+      expect(emittedFile.source).toContain('<footer>This is the footer</footer>');
+      expect(emittedFile.source).toContain('<p>Page content</p>');
+    });
+
+    it('buildStart should still resolve relative paths when aliases are present', async () => {
+      const mockRollupContext = { emitFile: vi.fn(), meta: { watchMode: false } };
+      const plugin = viteConvertPugInHtml({
+        pages: {
+          'with-relative': 'pages/with-relative.pug',
+        },
+      });
+      (plugin.configResolved as any)({
+        root: testProjectRoot,
+        resolve: { alias: aliases },
+      });
+
+      await (plugin.buildStart as any).call(mockRollupContext);
+
+      expect(mockRollupContext.emitFile).toHaveBeenCalledTimes(1);
+      const emittedFile = mockRollupContext.emitFile.mock.calls[0][0];
+      expect(emittedFile.source).toContain(
+        '<header>This is the header from a component</header>',
+      );
+      expect(emittedFile.source).toContain('<p>Page with relative path</p>');
+    });
+
+    it('configureServer should correctly serve pages with aliases', async () => {
+      const mockServer = {
+        config: {
+          root: testProjectRoot,
+          logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+          resolve: { alias: aliases },
+        },
+        middlewares: { use: vi.fn() },
+        transformIndexHtml: vi.fn((_url, html) => Promise.resolve(html)),
+        ws: { send: vi.fn() },
+      } as unknown as ViteDevServer;
+
+      let middleware: Connect.NextHandleFunction = () => {};
+
+      mockServer.middlewares.use = vi.fn((m) => (middleware = m));
+
+      const plugin = viteConvertPugInHtml({ pages: {} });
+      (plugin.configResolved as any)({
+        root: testProjectRoot,
+        resolve: { alias: aliases },
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      });
+
+      (plugin.configureServer as any)(mockServer);
+
+      const req = { url: '/with-alias.html' } as Connect.IncomingMessage;
+      const res = { setHeader: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
+      const next = vi.fn();
+
+      await middleware(req, res, next);
+
+      expect(res.end).toHaveBeenCalledTimes(1);
+      const responseHtml = (res.end as any).mock.calls[0][0];
+      expect(responseHtml).toContain(
+        '<header>This is the header from a component</header>',
+      );
+      expect(responseHtml).toContain('<footer>This is the footer</footer>');
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
+
   // --- ТЕСТЫ ДЛЯ HMR ---
   describe('handleHotUpdate hook', () => {
     it('should trigger a full-reload for .pug file changes', () => {
@@ -240,7 +351,7 @@ describe('viteConvertPugInHtml', () => {
       if (plugin.configResolved && typeof plugin.configResolved === 'function') {
         (plugin.configResolved as any)({
           root: testProjectRoot,
-          logger: { info: vi.fn() }
+          logger: { info: vi.fn() },
         });
       }
 

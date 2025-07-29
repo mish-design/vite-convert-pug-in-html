@@ -1,5 +1,5 @@
 import { type Options as PugOptions, render } from 'pug';
-import { relative, resolve } from 'path';
+import { dirname, extname, relative, resolve } from 'path';
 import fs from 'fs';
 import {
   type Plugin,
@@ -9,6 +9,7 @@ import {
   type Connect,
   type Logger,
   normalizePath,
+  type Alias,
 } from 'vite';
 import type { ServerResponse } from 'http';
 import { parse } from 'node-html-parser';
@@ -30,6 +31,38 @@ type PluginOptions = {
 export function viteConvertPugInHtml(options: PluginOptions): Plugin {
   let viteRoot: string;
   let logger: Logger;
+  let viteAliases: Alias[] = [];
+
+  const pugAliasResolver = (
+    filename: string,
+    source: string | undefined,
+    pugOptions: PugOptions,
+  ): string | null => {
+    for (const alias of viteAliases) {
+      const find =
+        typeof alias.find === 'string' ? new RegExp(`^${alias.find}`) : alias.find;
+      if (find.test(filename)) {
+        const aliasedPath = filename.replace(find, alias.replacement);
+        filename = aliasedPath;
+        break;
+      }
+    }
+
+    const base = source ? dirname(source) : pugOptions.basedir;
+    if (!base) {
+      return filename;
+    }
+
+    const resolvedPath = resolve(base, filename);
+    if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+      return resolvedPath;
+    }
+
+    if (extname(resolvedPath) !== '.pug' && fs.existsSync(resolvedPath + '.pug')) {
+      return resolvedPath + '.pug';
+    }
+    return resolvedPath;
+  };
 
   return {
     name: 'vite-convert-pug-in-html',
@@ -37,6 +70,7 @@ export function viteConvertPugInHtml(options: PluginOptions): Plugin {
     configResolved(resolvedConfig: ResolvedConfig) {
       viteRoot = resolvedConfig.root;
       logger = resolvedConfig.logger;
+      viteAliases = resolvedConfig.resolve?.alias ?? [];
     },
 
     buildStart() {
@@ -49,10 +83,11 @@ export function viteConvertPugInHtml(options: PluginOptions): Plugin {
           const absolutePath = resolve(viteRoot, id);
           const source = fs.readFileSync(absolutePath, 'utf-8');
           const html = render(source, {
-            filename: id,
+            filename: absolutePath,
             pretty: true,
             basedir: viteRoot,
             ...options.pugOptions,
+            plugins: [{ resolve: pugAliasResolver }],
           });
 
           const root = parse(html);
@@ -83,6 +118,7 @@ export function viteConvertPugInHtml(options: PluginOptions): Plugin {
           const html = render(code, {
             filename: id,
             basedir: viteRoot,
+            plugins: [{ resolve: pugAliasResolver }],
           });
 
           return {
@@ -146,6 +182,7 @@ export function viteConvertPugInHtml(options: PluginOptions): Plugin {
             filename: finalPugPath,
             pretty: true,
             basedir: server.config.root,
+            plugins: [{ resolve: pugAliasResolver }],
           });
 
           const viteHtml = await server.transformIndexHtml(
