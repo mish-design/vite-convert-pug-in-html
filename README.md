@@ -9,6 +9,7 @@ This plugin provides a zero-config-friendly experience for developers who prefer
 - **🚀 Multi-Page Application (MPA) Support**: Effortlessly configure multiple Pug files as entry points for your production build.
 - **⚡️ On-the-Fly Dev Server**: Intercepts requests to `.html` files and serves the compiled content from corresponding `.pug` files instantly.
 - **🔄 Hot Module Replacement (HMR)**: Full-page reloads on any `.pug` file change for a smooth development workflow.
+- **🧩 Vite Alias Support**: Use Vite aliases from your `resolve.alias` config directly in Pug `include` or `extends` statements.
 - **📦 Asset Handling**: Automatically replace placeholder script and stylesheet paths in your HTML during the production build.
 - **🧩 Import as String**: Import `.pug` files directly into your JavaScript/TypeScript as compiled HTML strings.
 - **🔧 Extensible**: Pass custom options directly to the Pug compiler.
@@ -63,6 +64,48 @@ export default defineConfig({
 
 Now, when you run `vite build`, the plugin will generate `dist/index.html` and `dist/pages/about/index.html`. In the dev server, you can access these pages at `/` and `/about`.
 
+### Vite Alias Support
+
+The plugin automatically picks up aliases from your Vite config's resolve.alias option. This allows for cleaner and more maintainable paths in your Pug include and extends directives.
+
+**vite.config.ts:**
+
+```ts
+import { defineConfig } from 'vite';
+import { viteConvertPugInHtml } from '@mish.dev/vite-convert-pug-in-html';
+import { resolve } from 'path';
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      // Set '@' as an alias for the 'src' directory
+      '@': resolve(__dirname, 'src'),
+    },
+  },
+  plugins: [
+    viteConvertPugInHtml({
+      pages: {
+        index: 'src/index.pug',
+      },
+    }),
+  ],
+});
+```
+
+**src/index.pug:**
+
+```pug
+doctype html
+html
+  body
+    //- Use the '@' alias to include a component
+    include @/components/header.pug
+
+    h1 Main Page
+
+    include @/components/footer.pug
+```
+
 ### Handling Assets (CSS & JS) in Production
 
 Vite generates assets with hashed filenames for caching. This plugin can automatically update the `href` and `src` attributes in your final HTML.
@@ -114,6 +157,37 @@ export default defineConfig({
 ```
 
 _Note: The plugin will find the first `<link rel="stylesheet">` and `<script src="...">` and replace their paths. For more complex scenarios, consider using the `pugOptions` to inject variables._
+
+### Import as HTML String
+
+You can import .pug files directly into your code, which is useful for component templates.
+
+**src/template.pug:**
+
+```pug
+.card
+  h3= title
+  p= content
+```
+
+**src/main.ts:**
+
+```typescript
+// Note: This import will be a pre-compiled HTML string with empty variables.
+import templateString from './template.pug';
+
+// If you need to render with data on the client, you'll need the 'pug' package
+import { compile } from 'pug';
+
+// templateString will contain the compiled HTML string:
+// "<div class="card"><h3></h3><p></p></div>"
+console.log(templateString);
+
+// To inject data, compile the template string into a function
+const compiledTemplate = compile('include /path/to/template.pug'); // Or compile the imported string
+const finalHtml = compiledTemplate({ title: 'Hello', content: 'World' });
+document.body.innerHTML = finalHtml;
+```
 
 ## Options
 
