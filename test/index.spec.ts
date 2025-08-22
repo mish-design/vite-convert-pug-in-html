@@ -8,68 +8,70 @@ import {
   beforeAll,
   afterAll,
 } from 'vitest';
-import type { Plugin, ViteDevServer, HmrContext, Alias } from 'vite';
+import type {
+  Plugin,
+  ViteDevServer,
+  HmrContext,
+  Alias,
+  UserConfig,
+  ConfigPluginContext,
+} from 'vite';
 import { viteConvertPugInHtml } from '../src';
 import { resolve } from 'path';
 import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
-import type { Connect } from 'vite';
+import { normalizePath, type Connect } from 'vite';
 import type { ServerResponse } from 'http';
+
+// --- НАСТРОЙКА ТЕСТОВОГО ОКРУЖЕНИЯ ---
 
 const testProjectRoot = resolve(process.cwd(), '.vitest-project-root');
 const srcRoot = resolve(testProjectRoot, 'src');
 
 const filesContent = {
-  'index.pug': `
+  'src/index.pug': `
 doctype html
 html
   head
-    link(rel="stylesheet" href="/style.css")
+    title Main Page
   body
-    h1 Main Page
-    script(src="/main.js" type="module")
+    h1 Main Page Content
 `,
-  'pages/about.pug': `
+  'src/pages/about.pug': `
 doctype html
 html
-  head
-    title About Us
   body
     h1 About Page
 `,
-  'pages/error.pug': `
+  'src/pages/contact/index.pug': `
 doctype html
 html
   body
-    h1 This will fail..
+    h1 Contact Index Page
+`,
+  'src/pages/error.pug': `
+doctype html
+html
+  body
     //- Невалидный синтаксис pug
     div(
 `,
   'src/components/header.pug': 'header This is the header from a component',
-  'src/components/footer.pug': 'footer This is the footer',
-  'pages/with-alias.pug': `
+  'src/pages/with-alias.pug': `
 doctype html
 html
   body
     include @/components/header.pug
-    p Page content
-    include @/components/footer.pug
-`,
-  'pages/with-relative.pug': `
-doctype html
-html
-  body
-    include ../src/components/header.pug
-    p Page with relative path
 `,
 };
 
-describe('viteConvertPugInHtml', () => {
+describe('viteConvertPugInHtml (zero-config version)', () => {
   beforeAll(() => {
     if (existsSync(testProjectRoot)) {
       rmSync(testProjectRoot, { recursive: true, force: true });
     }
-    mkdirSync(testProjectRoot, { recursive: true });
-    mkdirSync(resolve(testProjectRoot, 'pages'), { recursive: true });
+    mkdirSync(srcRoot, { recursive: true });
+    mkdirSync(resolve(srcRoot, 'pages'), { recursive: true });
+    mkdirSync(resolve(srcRoot, 'pages/contact'), { recursive: true });
     mkdirSync(resolve(srcRoot, 'components'), { recursive: true });
   });
 
@@ -89,91 +91,108 @@ describe('viteConvertPugInHtml', () => {
     vi.clearAllMocks();
   });
 
-  // --- ТЕСТЫ ДЛЯ СБОРКИ ---
-  describe('buildStart hook (production build)', () => {
-    it('should generate HTML files from pug entries', async () => {
-      const mockRollupContext = { emitFile: vi.fn(), meta: { watchMode: false } };
-      const plugin = viteConvertPugInHtml({
-        pages: {
-          index: 'index.pug',
-          about: 'pages/about.pug',
-        },
-      });
-      (plugin.configResolved as any)({ root: testProjectRoot });
+  // --- ТЕСТЫ ДЛЯ ГЛАВНОГО ХУКА `config` ---
+  describe('config hook', () => {
+    it('should find pug files and generate correct rollupOptions.input', () => {
+      const plugin = viteConvertPugInHtml() as Plugin;
+      const userConfig: UserConfig = { root: srcRoot };
 
-      await (plugin.buildStart as any).call(mockRollupContext);
+      const configHook = plugin.config;
+      let resultConfig: any = {};
+      if (configHook && typeof configHook === 'function') {
+        resultConfig = configHook.call(null, userConfig, {
+          command: 'build',
+          mode: 'production',
+        });
+      }
 
-      expect(mockRollupContext.emitFile).toHaveBeenCalledTimes(2);
-      expect(mockRollupContext.emitFile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fileName: 'index.html',
-          source: expect.stringContaining('<h1>Main Page</h1>'),
-        }),
+      const input = resultConfig.build.rollupOptions.input;
+
+      expect(Object.keys(input)).toEqual(
+        expect.arrayContaining([
+          'index',
+          'about/index',
+          'contact/index',
+          'with-alias/index',
+        ]),
       );
-      expect(mockRollupContext.emitFile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fileName: 'about.html',
-          source: expect.stringContaining('<h1>About Page</h1>'),
-        }),
+
+      expect(input['about/index']).toBe(
+        normalizePath(resolve(srcRoot, 'about/index.html')),
       );
-    });
-
-    it('should apply replacements for css and script tags', async () => {
-      const mockRollupContext = { emitFile: vi.fn(), meta: { watchMode: false } };
-      const plugin = viteConvertPugInHtml({
-        pages: { index: 'index.pug' },
-        replacement: { css: 'assets/main.css', script: 'assets/main.js' },
-      });
-      (plugin.configResolved as any)({ root: testProjectRoot });
-
-      await (plugin.buildStart as any).call(mockRollupContext);
-
-      const emittedFile = mockRollupContext.emitFile.mock.calls[0][0];
-      expect(emittedFile.source).toContain('href="assets/main.css"');
-      expect(emittedFile.source).toContain('src="assets/main.js"');
-    });
-
-    it('should do nothing in watch mode', async () => {
-      const mockRollupContext = { emitFile: vi.fn(), meta: { watchMode: true } };
-      const plugin = viteConvertPugInHtml({ pages: {} }) as Plugin;
-      await (plugin.buildStart as any).call(mockRollupContext);
-      expect(mockRollupContext.emitFile).not.toHaveBeenCalled();
+      expect(input['index']).toBe(normalizePath(resolve(srcRoot, 'index.html')));
     });
   });
 
-  // --- ТЕСТЫ ДЛЯ ТРАНСФОРМАЦИИ ---
-  describe('transform hook', () => {
-    const mockTransformContext = { emitFile: vi.fn() };
-    const plugin = viteConvertPugInHtml({ pages: {} });
-    (plugin.configResolved as any)({ root: testProjectRoot });
+  // --- ТЕСТЫ ДЛЯ `resolveId` И `load` ---
+  describe('resolveId and load hooks', () => {
+    let plugin: Plugin;
+    const aliases: Alias[] = [{ find: '@', replacement: srcRoot }];
 
-    it('should transform .pug file to a string export', () => {
-      const code = 'p Hello World';
-      const id = resolve(testProjectRoot, 'test.pug');
-      const transformHook = plugin.transform;
-      let result: any;
-      if (typeof transformHook === 'function') {
-        result = transformHook.call(mockTransformContext, code, id);
-      } else if (transformHook && 'handler' in transformHook) {
-        result = transformHook.handler.call(mockTransformContext, code, id);
+    beforeEach(() => {
+      plugin = viteConvertPugInHtml({ locals: { SITE_NAME: 'Test Site' } }) as Plugin;
+      const userConfig: UserConfig = { root: srcRoot, resolve: { alias: aliases } };
+      if (plugin.config && typeof plugin.config === 'function') {
+        plugin.config.call(null, userConfig, { command: 'build', mode: 'production' });
       }
-
-      const expectedHtml = '<p>Hello World</p>';
-      expect(result).not.toBeNull();
-      expect(result.code).toBe(`export default ${JSON.stringify(expectedHtml)}`);
+      if (plugin.configResolved && typeof plugin.configResolved === 'function') {
+        (plugin.configResolved as any)({ root: srcRoot, resolve: { alias: aliases } });
+      }
     });
 
-    it('should return null for non-pug files', () => {
-      const code = 'const a = 1;';
-      const id = 'test.js';
-      const transformHook = plugin.transform;
-      let result: any;
-      if (typeof transformHook === 'function') {
-        result = transformHook.call(mockTransformContext, code, id);
-      } else if (transformHook && 'handler' in transformHook) {
-        result = transformHook.handler.call(mockTransformContext, code, id);
+    it('resolveId should resolve virtual HTML paths found by config hook', () => {
+      const virtualHtmlPath = resolve(srcRoot, 'about/index.html');
+      const resolveIdHook = plugin.resolveId;
+      let resolved: any;
+      if (resolveIdHook && typeof resolveIdHook === 'function') {
+        resolved = resolveIdHook.call(null, virtualHtmlPath, undefined, {} as any);
       }
-      expect(result).toBeNull();
+      expect(resolved).toBe(normalizePath(virtualHtmlPath));
+    });
+
+    it('load should return rendered HTML for a known virtual path', () => {
+      const virtualHtmlPath = resolve(srcRoot, 'index.html');
+      const loadHook = plugin.load;
+      let loaded: any;
+      if (loadHook && typeof loadHook === 'function') {
+        loaded = loadHook.call({ addWatchFile: vi.fn() }, virtualHtmlPath, {} as any);
+      }
+      expect(loaded).toContain('<h1>Main Page Content</h1>');
+    });
+
+    it('load should correctly resolve aliases during render', () => {
+      const virtualHtmlPath = resolve(srcRoot, 'with-alias/index.html');
+      const loadHook = plugin.load;
+      let loaded: any;
+      if (loadHook && typeof loadHook === 'function') {
+        loaded = loadHook.call({ addWatchFile: vi.fn() }, virtualHtmlPath, {} as any);
+      }
+      expect(loaded).toContain('<header>This is the header from a component</header>');
+    });
+
+    it('load should pass `locals` to the template', () => {
+      // Добавим файл с использованием locals
+      writeFileSync(resolve(srcRoot, 'pages/with-locals.pug'), 'p= SITE_NAME');
+
+      // Пересоздадим плагин с `locals` и пере-инициализируем
+      plugin = viteConvertPugInHtml({
+        locals: { SITE_NAME: 'My Awesome Site' },
+      }) as Plugin;
+      const userConfig: UserConfig = { root: srcRoot };
+      if (plugin.config && typeof plugin.config === 'function') {
+        plugin.config.call(null, userConfig, { command: 'build', mode: 'production' });
+      }
+      if (plugin.configResolved && typeof plugin.configResolved === 'function') {
+        (plugin.configResolved as any)({ root: srcRoot });
+      }
+
+      const virtualHtmlPath = resolve(srcRoot, 'with-locals/index.html');
+      const loadHook = plugin.load;
+      let loaded: any;
+      if (loadHook && typeof loadHook === 'function') {
+        loaded = loadHook.call({ addWatchFile: vi.fn() }, virtualHtmlPath, {} as any);
+      }
+      expect(loaded).toContain('<p>My Awesome Site</p>');
     });
   });
 
@@ -185,221 +204,97 @@ describe('viteConvertPugInHtml', () => {
     beforeEach(() => {
       mockServer = {
         config: {
-          root: testProjectRoot,
-          logger: {
-            error: vi.fn(),
-            info: vi.fn(),
-            warn: vi.fn(),
-          },
+          root: srcRoot,
+          logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
         },
         middlewares: { use: vi.fn((m) => (middleware = m)) },
         transformIndexHtml: vi.fn((_url, html) => Promise.resolve(html)),
-        ws: {
-          send: vi.fn(),
-        },
+        watcher: { add: vi.fn() },
       } as unknown as ViteDevServer;
 
-      const plugin = viteConvertPugInHtml({ pages: {} }) as Plugin;
-      const configureServerHook = plugin.configureServer;
-      if (configureServerHook) {
-        if (typeof configureServerHook === 'function') {
-          configureServerHook.call(null, mockServer);
-        } else {
-          configureServerHook.handler.call(null, mockServer);
-        }
+      const plugin = viteConvertPugInHtml() as Plugin;
+      const userConfig: UserConfig = { root: srcRoot };
+      if (plugin.config && typeof plugin.config === 'function') {
+        plugin.config.call(null, userConfig, { command: 'serve', mode: 'development' });
+      }
+      if (plugin.configResolved && typeof plugin.configResolved === 'function') {
+        (plugin.configResolved as any)({ root: srcRoot });
+      }
+      if (plugin.configureServer && typeof plugin.configureServer === 'function') {
+        plugin.configureServer.call(null, mockServer);
       }
     });
 
     it('should serve index.pug for root URL ("/")', async () => {
       const req = { url: '/' } as Connect.IncomingMessage;
       const res = { setHeader: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
-      const next = vi.fn();
-      await middleware(req, res, next);
-      expect(res.end).toHaveBeenCalledWith(expect.stringContaining('<h1>Main Page</h1>'));
-      expect(next).not.toHaveBeenCalled();
+      await middleware(req, res, vi.fn());
+      expect(res.end).toHaveBeenCalledWith(
+        expect.stringContaining('<h1>Main Page Content</h1>'),
+      );
     });
 
-    it('should serve a page from the "pages" directory', async () => {
-      const req = { url: '/about.html' } as Connect.IncomingMessage;
+    it('should serve a page with a clean URL (e.g., "/about")', async () => {
+      const req = { url: '/about' } as Connect.IncomingMessage;
       const res = { setHeader: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
-      const next = vi.fn();
-      await middleware(req, res, next);
+      await middleware(req, res, vi.fn());
       expect(res.end).toHaveBeenCalledWith(
         expect.stringContaining('<h1>About Page</h1>'),
       );
-      expect(next).not.toHaveBeenCalled();
     });
 
-    it('should call next() for non-html requests', async () => {
+    it('should serve a nested index page with a clean URL (e.g., "/contact")', async () => {
+      const req = { url: '/contact' } as Connect.IncomingMessage;
+      const res = { setHeader: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
+      await middleware(req, res, vi.fn());
+      expect(res.end).toHaveBeenCalledWith(
+        expect.stringContaining('<h1>Contact Index Page</h1>'),
+      );
+    });
+
+    it('should call next() for non-pug assets', async () => {
       const req = { url: '/style.css' } as Connect.IncomingMessage;
-      const res = { end: vi.fn() } as unknown as ServerResponse;
       const next = vi.fn();
-      await middleware(req, res, next);
-      expect(res.end).not.toHaveBeenCalled();
+      await middleware(req, {} as any, next);
       expect(next).toHaveBeenCalled();
     });
 
-    it('should handle rendering errors and send to websocket', async () => {
-      const req = { url: '/error.html' } as Connect.IncomingMessage;
-      const res = { end: vi.fn() } as unknown as ServerResponse;
+    it('should handle rendering errors', async () => {
+      const req = { url: '/error' } as Connect.IncomingMessage;
       const next = vi.fn();
-      await middleware(req, res, next);
-      expect(mockServer.ws.send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'error' }),
-      );
+      await middleware(req, {} as any, next);
       expect(next).toHaveBeenCalledWith(expect.any(Error));
-    });
-  });
-
-  // --- ТЕСТЫ ДЛЯ ALIAS---
-  describe('with aliases', () => {
-    const aliases: Alias[] = [{ find: '@', replacement: srcRoot }];
-
-    it('buildStart should correctly resolve includes with aliases', async () => {
-      const mockRollupContext = { emitFile: vi.fn(), meta: { watchMode: false } };
-      const plugin = viteConvertPugInHtml({
-        pages: {
-          'with-alias': 'pages/with-alias.pug',
-        },
-      });
-
-      (plugin.configResolved as any)({
-        root: testProjectRoot,
-        resolve: { alias: aliases },
-      });
-
-      await (plugin.buildStart as any).call(mockRollupContext);
-
-      expect(mockRollupContext.emitFile).toHaveBeenCalledTimes(1);
-      const emittedFile = mockRollupContext.emitFile.mock.calls[0][0];
-      expect(emittedFile.fileName).toBe('with-alias.html');
-      expect(emittedFile.source).toContain(
-        '<header>This is the header from a component</header>',
-      );
-      expect(emittedFile.source).toContain('<footer>This is the footer</footer>');
-      expect(emittedFile.source).toContain('<p>Page content</p>');
-    });
-
-    it('buildStart should still resolve relative paths when aliases are present', async () => {
-      const mockRollupContext = { emitFile: vi.fn(), meta: { watchMode: false } };
-      const plugin = viteConvertPugInHtml({
-        pages: {
-          'with-relative': 'pages/with-relative.pug',
-        },
-      });
-      (plugin.configResolved as any)({
-        root: testProjectRoot,
-        resolve: { alias: aliases },
-      });
-
-      await (plugin.buildStart as any).call(mockRollupContext);
-
-      expect(mockRollupContext.emitFile).toHaveBeenCalledTimes(1);
-      const emittedFile = mockRollupContext.emitFile.mock.calls[0][0];
-      expect(emittedFile.source).toContain(
-        '<header>This is the header from a component</header>',
-      );
-      expect(emittedFile.source).toContain('<p>Page with relative path</p>');
-    });
-
-    it('configureServer should correctly serve pages with aliases', async () => {
-      const mockServer = {
-        config: {
-          root: testProjectRoot,
-          logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-          resolve: { alias: aliases },
-        },
-        middlewares: { use: vi.fn() },
-        transformIndexHtml: vi.fn((_url, html) => Promise.resolve(html)),
-        ws: { send: vi.fn() },
-      } as unknown as ViteDevServer;
-
-      let middleware: Connect.NextHandleFunction = () => {};
-
-      mockServer.middlewares.use = vi.fn((m) => (middleware = m));
-
-      const plugin = viteConvertPugInHtml({ pages: {} });
-      (plugin.configResolved as any)({
-        root: testProjectRoot,
-        resolve: { alias: aliases },
-        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      });
-
-      (plugin.configureServer as any)(mockServer);
-
-      const req = { url: '/with-alias.html' } as Connect.IncomingMessage;
-      const res = { setHeader: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
-      const next = vi.fn();
-
-      await middleware(req, res, next);
-
-      expect(res.end).toHaveBeenCalledTimes(1);
-      const responseHtml = (res.end as any).mock.calls[0][0];
-      expect(responseHtml).toContain(
-        '<header>This is the header from a component</header>',
-      );
-      expect(responseHtml).toContain('<footer>This is the footer</footer>');
-      expect(next).not.toHaveBeenCalled();
     });
   });
 
   // --- ТЕСТЫ ДЛЯ HMR ---
   describe('handleHotUpdate hook', () => {
     it('should trigger a full-reload for .pug file changes', () => {
-      const plugin = viteConvertPugInHtml({ pages: {} });
+      const plugin = viteConvertPugInHtml() as Plugin;
 
-      if (plugin.configResolved && typeof plugin.configResolved === 'function') {
-        (plugin.configResolved as any)({
-          root: testProjectRoot,
-          logger: { info: vi.fn() },
-        });
-      }
-
-      const mockContext: HmrContext = {
-        file: resolve(testProjectRoot, 'pages/about.pug'),
-        timestamp: Date.now(),
+      const mockHmrContext: HmrContext = {
+        file: resolve(srcRoot, 'pages/about.pug'),
         server: {
           ws: { send: vi.fn() },
-          config: {
-            logger: {
-              error: vi.fn(),
-              info: vi.fn(),
-              warn: vi.fn(),
-            },
-          },
+          config: { logger: { info: vi.fn() } },
         } as any,
-        read: vi.fn(),
+        timestamp: Date.now(),
         modules: [],
+        read: () => Promise.resolve(''),
       };
-      (plugin.handleHotUpdate as any)(mockContext);
-      expect(mockContext.server.ws.send).toHaveBeenCalledWith({
+
+      if (plugin.configResolved && typeof plugin.configResolved === 'function') {
+        (plugin.configResolved as any).call(mockHmrContext, { root: srcRoot });
+      }
+
+      if (plugin.handleHotUpdate && typeof plugin.handleHotUpdate === 'function') {
+        plugin.handleHotUpdate.call(mockHmrContext, mockHmrContext);
+      }
+
+      expect(mockHmrContext.server.ws.send).toHaveBeenCalledWith({
         type: 'full-reload',
         path: '*',
       });
-    });
-
-    it('should do nothing for non-pug file changes', () => {
-      const plugin = viteConvertPugInHtml({ pages: {} });
-      const mockContext: HmrContext = {
-        file: resolve(testProjectRoot, 'main.js'),
-        timestamp: Date.now(),
-        server: {
-          ws: {
-            send: vi.fn(),
-          },
-          config: {
-            logger: {
-              error: vi.fn(),
-              info: vi.fn(),
-              warn: vi.fn(),
-            },
-          },
-        } as any,
-        read: vi.fn(),
-        modules: [],
-      };
-      (plugin.handleHotUpdate as any)(mockContext);
-      expect(mockContext.server.ws.send).not.toHaveBeenCalled();
     });
   });
 });
