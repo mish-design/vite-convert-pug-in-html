@@ -1,6 +1,6 @@
 {
   "name": "@mish.dev/vite-convert-pug-in-html",
-  "version": "1.2.1",
+  "version": "2.0.0",
   "description": "A Vite plugin to seamlessly integrate Pug for multi-page applications, on-the-fly development server compilation, and component templating.",
   "license": "MIT",
   "author": "Hwaiteu",
@@ -34,11 +34,11 @@
   },
   "homepage": "https://github.com/mish-design/vite-convert-pug-in-html#readme",
   "dependencies": {
-    "node-html-parser": "^7.0.1",
-    "picocolors": "^1.1.1",
-    "pug": "^3.0.0"
+    "glob": "^11.0.3",
+    "picocolors": "^1.1.1"
   },
   "devDependencies": {
+    "@types/node": "^24.3.0",
     "@types/pug": "^2.0.10",
     "pug": "^3.0.3",
     "typescript": "^5.8.3",
