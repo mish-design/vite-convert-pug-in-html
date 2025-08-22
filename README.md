@@ -1,18 +1,18 @@
 # vite-convert-pug-in-html
 
-A Vite plugin to seamlessly integrate [Pug](https://pugjs.org/) for multi-page applications (MPA), on-the-fly development server compilation, and component templating.
+A Vite plugin for a seamless, zero-config Pug integration in multi-page applications (MPA).
 
-This plugin provides a zero-config-friendly experience for developers who prefer Pug for its clean and concise syntax while building projects with Vite.
+This plugin automatically detects your `.pug` pages, compiles them on-the-fly in the dev server with support for "pretty URLs" (e.g., `/about`), and builds them into a clean, nested directory structure for production.
 
 ## Features
 
-- **🚀 Multi-Page Application (MPA) Support**: Effortlessly configure multiple Pug files as entry points for your production build.
-- **⚡️ On-the-Fly Dev Server**: Intercepts requests to `.html` files and serves the compiled content from corresponding `.pug` files instantly.
-- **🔄 Hot Module Replacement (HMR)**: Full-page reloads on any `.pug` file change for a smooth development workflow.
+- **🚀 Zero-Config MPA**: Automatically detects all `.pug` files in your source directory to create a multi-page application without manual configuration.
+- **⚡️ Pretty URLs & Dev Server**: Intercepts requests to clean URLs (like `/about` or `/contact`) and serves the correctly compiled Pug file on-the-fly.
+- **🔄 Hot Module Replacement (HMR)**: Full-page reloads when any `.pug` file (including partials via `include` or `extends`) is changed.
 - **🧩 Vite Alias Support**: Use Vite aliases from your `resolve.alias` config directly in Pug `include` or `extends` statements.
-- **📦 Asset Handling**: Automatically replace placeholder script and stylesheet paths in your HTML during the production build.
-- **🧩 Import as String**: Import `.pug` files directly into your JavaScript/TypeScript as compiled HTML strings.
-- **🔧 Extensible**: Pass custom options directly to the Pug compiler.
+- **🌐 Global Data**: Pass global variables and data to all your Pug templates using the `locals` option.
+- **📦 Vite-Native Asset Handling**: Let Vite handle your assets naturally. Just link your scripts and styles (`<script src="/main.ts">`) in Pug, and Vite will bundle and inject them correctly.
+- **🔧 Extensible**: Pass custom options directly to the Pug compiler via `pugOptions`.
 
 ## Installation
 
@@ -20,27 +20,44 @@ This plugin provides a zero-config-friendly experience for developers who prefer
 npm install @mish.dev/vite-convert-pug-in-html -D
 ```
 
-This plugin relies on your project's version of Pug. The internal dependency `node-html-parser` will be installed automatically.
+The plugin requires `pug` to be installed in your project:
+
+```bash
+npm install pug -D
+```
 
 ## Usage
 
-Add the plugin to your `vite.config.ts` file.
+Add the plugin to your `vite.config.ts`. For most projects, no options are required.
 
-### Basic MPA Setup
+### How It Works
 
-For a typical multi-page application, specify your entry points in the `pages` option. The key is the name of the output HTML file (e.g., `index`), and the value is the path to the source Pug file.
+The plugin automatically scans your project's `root` directory (by default, `src` if you've set `root: 'src'`) for `.pug` files to build your application.
 
-**Project Structure:**
+- It ignores any file starting with `_` (e.g., `_layout.pug`), treating them as partials.
+- `src/index.pug` becomes the site's root (`/`).
+- `src/pages/about.pug` becomes accessible at `/about`.
+- `src/pages/contact/index.pug` becomes accessible at `/contact`.
+
+**Recommended Project Structure:**
 
 ```
 .
 ├── src/
+│   ├── components/
+│   │   └── _header.pug
+│   ├── pages/
+│   │   ├── about.pug
+│   │   └── contact/
+│   │       └── index.pug
+│   ├── templates/
+│   │   └── _layout.pug
 │   ├── index.pug
-│   ├── main.ts
-│   └── pages/
-│       └── about.pug
+│   └── main.ts
 └── vite.config.ts
 ```
+
+### Basic Zero-Config Setup
 
 **vite.config.ts:**
 
@@ -49,24 +66,94 @@ import { defineConfig } from 'vite';
 import { viteConvertPugInHtml } from '@mish.dev/vite-convert-pug-in-html';
 
 export default defineConfig({
+  // Tell Vite that your source code is in the 'src' directory
+  root: 'src',
+
   plugins: [
-    viteConvertPugInHtml({
-      pages: {
-        // will generate dist/index.html
-        index: 'src/index.pug',
-        // will generate dist/about.html
-        about: 'src/pages/about.pug',
-      },
-    }),
+    // That's it! No options needed for a standard setup.
+    viteConvertPugInHtml(),
   ],
+
+  build: {
+    // Make sure Vite builds to the project root, not inside 'src'
+    outDir: '../dist',
+  },
 });
 ```
 
-Now, when you run `vite build`, the plugin will generate `dist/index.html` and `dist/pages/about/index.html`. In the dev server, you can access these pages at `/` and `/about`.
+When you run `vite build`, the plugin automatically generates:
+
+- `dist/index.html` (from `src/index.pug`)
+- `dist/about/index.html` (from `src/pages/about.pug`)
+- `dist/contact/index.html` (from `src/pages/contact/index.pug`)
+
+In the dev server, you can access these pages at `/`, `/about`, and `/contact`.
+
+### Handling Assets (The Modern Vite Way)
+
+Forget manual replacements. Just link your TypeScript/JavaScript entry point directly in your main layout file. Vite will handle the rest.
+
+**src/templates/\_layout.pug:**
+
+```pug
+doctype html
+html
+  head
+    title My Awesome Site
+    // Vite will automatically inject the compiled CSS here
+  body
+    block content
+
+    // Just point to your TS/JS entry file.
+    // Vite will bundle it and add the correct hashed path on build.
+    script(src="/main.ts" type="module")
+```
+
+### Passing Global Data with `locals`
+
+Use the `locals` option to make data available in all your Pug templates. This is the perfect place for site-wide constants, helper functions, or environment variables.
+
+**vite.config.ts:**
+
+```ts
+import { defineConfig } from 'vite';
+import { viteConvertPugInHtml } from '@mish.dev/vite-convert-pug-in-html';
+
+export default defineConfig({
+  root: 'src',
+  plugins: [
+    viteConvertPugInHtml({
+      locals: {
+        SITE_NAME: 'My Awesome Company',
+        PHONE: '+1 (800) 555-1234',
+        CURRENT_YEAR: new Date().getFullYear(),
+      },
+    }),
+  ],
+  build: {
+    outDir: '../dist',
+  },
+});
+```
+
+**src/templates/\_layout.pug:**
+
+```pug
+doctype html
+html
+  head
+    //- Variables from `locals` are globally available
+    title= SITE_NAME
+  body
+    block content
+    footer
+      p &copy; #{CURRENT_YEAR} #{SITE_NAME}
+      p Call us at: #{PHONE}
+```
 
 ### Vite Alias Support
 
-The plugin automatically picks up aliases from your Vite config's resolve.alias option. This allows for cleaner and more maintainable paths in your Pug include and extends directives.
+The plugin automatically uses aliases from your `resolve.alias` config, making includes clean and maintainable.
 
 **vite.config.ts:**
 
@@ -76,181 +163,53 @@ import { viteConvertPugInHtml } from '@mish.dev/vite-convert-pug-in-html';
 import { resolve } from 'path';
 
 export default defineConfig({
+  root: 'src',
   resolve: {
     alias: {
-      // Set '@' as an alias for the 'src' directory
       '@': resolve(__dirname, 'src'),
     },
   },
-  plugins: [
-    viteConvertPugInHtml({
-      pages: {
-        index: 'src/index.pug',
-      },
-    }),
-  ],
-});
-```
-
-**src/index.pug:**
-
-```pug
-doctype html
-html
-  body
-    //- Use the '@' alias to include a component
-    include @/components/header.pug
-
-    h1 Main Page
-
-    include @/components/footer.pug
-```
-
-### Handling Assets (CSS & JS) in Production
-
-Vite generates assets with hashed filenames for caching. This plugin can automatically update the `href` and `src` attributes in your final HTML.
-
-**src/index.pug:**
-
-```pug
-doctype html
-html
-  head
-    // This href will be replaced during build
-    link(rel="stylesheet" href="/style.css")
-  body
-    h1 Main Page
-    // This src will be replaced during build
-    script(src="/main.js" type="module")
-```
-
-**vite.config.ts:**
-
-```ts
-import { defineConfig } from 'vite';
-import { viteConvertPugInHtml } from '@mish.dev/vite-convert-pug-in-html';
-
-export default defineConfig({
-  plugins: [
-    viteConvertPugInHtml({
-      pages: {
-        index: 'src/index.pug',
-      },
-      // This option is used ONLY for the build process
-      replacement: {
-        // The value should match the output key from `build.rollupOptions.input`
-        // if you are bundling your script.
-        script: '/scripts/main.js',
-        css: 'style.css',
-      },
-    }),
-  ],
+  plugins: [viteConvertPugInHtml()],
   build: {
-    rollupOptions: {
-      // Ensure Vite bundles your main script and CSS
-      input: {
-        main: 'scripts/main.ts',
-      },
-    },
+    outDir: '../dist',
   },
 });
 ```
 
-_Note: The plugin will find the first `<link rel="stylesheet">` and `<script src="...">` and replace their paths. For more complex scenarios, consider using the `pugOptions` to inject variables._
-
-### Import as HTML String
-
-You can import .pug files directly into your code, which is useful for component templates.
-
-**src/template.pug:**
+**src/pages/about.pug:**
 
 ```pug
-.card
-  h3= title
-  p= content
-```
+extends @/templates/_layout.pug
 
-**src/main.ts:**
-
-```typescript
-// Note: This import will be a pre-compiled HTML string with empty variables.
-import templateString from './template.pug';
-
-// If you need to render with data on the client, you'll need the 'pug' package
-import { compile } from 'pug';
-
-// templateString will contain the compiled HTML string:
-// "<div class="card"><h3></h3><p></p></div>"
-console.log(templateString);
-
-// To inject data, compile the template string into a function
-const compiledTemplate = compile('include /path/to/template.pug'); // Or compile the imported string
-const finalHtml = compiledTemplate({ title: 'Hello', content: 'World' });
-document.body.innerHTML = finalHtml;
+block content
+  //- Use the '@' alias to include a component
+  include @/components/_header.pug
+  h1 About Us
 ```
 
 ## Options
 
-### `pages`
-
-- **Type**: `Record<string, string>`
-- **Default**: `{}`
-
-An object defining the MPA entry points for the build.
-
-- The **key** is the name of the output HTML file (without the `.html` extension).
-- The **value** is the path to the source `.pug` file, relative to the project root.
-
-### `replacement`
-
-- **Type**: `{ css?: string; script?: string; }`
-- **Default**: `{}`
-
-An object to specify the final paths for your CSS and JavaScript assets in the production build.
-
-- `css`: The plugin will find the first `<link rel="stylesheet">` and replace its `href` attribute with this value.
-- `script`: The plugin will find the first `<script>` with a `src` attribute and replace its `src` with this value.
-
 ### `pugOptions`
 
-- **Type**: `PugOptions`
+- **Type**: `PugOptions` (from `pug`)
 - **Default**: `{}`
 
-An object of options to be passed directly to `pug.render()`. This allows you to use any of Pug's features, like filters, custom doctypes, or passing data via the `locals` property.
-
-**Example:**
+An object of options passed directly to `pug.render()`. Use this for advanced Pug features like filters or custom doctypes.
 
 ```ts
 viteConvertPugInHtml({
-  pages: {
-    index: 'src/index.pug',
-  },
   pugOptions: {
-    pretty: true, // Make the output HTML readable
-    locals: {
-      // This data will be available in your .pug files
-      title: 'My Awesome Website',
-      user: { name: 'Alex' },
-    },
+    pretty: true, // Make the output HTML readable (default)
   },
 }),
 ```
 
-**src/index.pug:**
+### `locals`
 
-```pug
-doctype html
-html
-  head
-    //- The title variable comes from pugOptions.locals
-    title= title
-  body
-    //- The user variable is also available
-    if user
-      h1 Welcome, #{user.name}!
-    else
-      h1 Welcome, Guest!
-```
+- **Type**: `Record<string, any>`
+- **Default**: `{}`
+
+An object of global variables that will be available in all your Pug templates. This is merged with `pugOptions` before rendering.
 
 ## License
 
