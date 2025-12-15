@@ -38,7 +38,7 @@
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
-    "@types/node": "^24.3.0",
+    "@types/node": "^25.0.2",
     "@types/pug": "^2.0.10",
     "pug": "^3.0.3",
     "typescript": "^5.8.3",
