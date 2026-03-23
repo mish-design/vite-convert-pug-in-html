@@ -41,7 +41,7 @@
     "@types/node": "^25.0.2",
     "@types/pug": "^2.0.10",
     "pug": "^3.0.3",
-    "typescript": "^5.8.3",
+    "typescript": "^6.0.2",
     "vite": "^7.0.6",
     "vitest": "^4.0.4"
   },
