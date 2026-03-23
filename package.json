@@ -42,7 +42,7 @@
     "@types/pug": "^2.0.10",
     "pug": "^3.0.3",
     "typescript": "^5.8.3",
-    "vite": "^7.0.6",
+    "vite": "^8.0.2",
     "vitest": "^4.0.4"
   },
   "peerDependencies": {
