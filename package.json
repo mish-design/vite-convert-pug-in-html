@@ -1,6 +1,6 @@
 {
   "name": "@mish.dev/vite-convert-pug-in-html",
-  "version": "2.0.0",
+  "version": "2.0.0-alpha.1",
   "description": "A Vite plugin to seamlessly integrate Pug for multi-page applications, on-the-fly development server compilation, and component templating.",
   "license": "MIT",
   "author": "Hwaiteu",
@@ -42,10 +42,13 @@
     "@types/pug": "^2.0.10",
     "pug": "^3.0.3",
     "typescript": "^5.8.3",
-    "vite": "^7.0.6",
+    "vite": "^8.0.0",
     "vitest": "^4.0.4"
   },
   "peerDependencies": {
-    "vite": "^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0"
+    "vite": "^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.27.1": true
   }
 }
