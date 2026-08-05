@@ -1,0 +1,53 @@
+name: Telegram Notifications
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Send Telegram notification
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
+            echo "Telegram secrets are not configured; skipping notification."
+            exit 0
+          fi
+
+          event_path="${GITHUB_EVENT_PATH:-}"
+          if [[ -z "$event_path" || ! -r "$event_path" ]]; then
+            echo "The GitHub event payload is unavailable; skipping notification."
+            exit 0
+          fi
+
+          event_kind="$(jq -r 'if .pull_request? then "Pull request" elif .issue? then "Issue" else empty end' "$event_path")"
+          title="$(jq -r '(.pull_request.title? // .issue.title? // empty)' "$event_path")"
+          author="$(jq -r '(.pull_request.user.login? // .issue.user.login? // empty)' "$event_path")"
+          url="$(jq -r '(.pull_request.html_url? // .issue.html_url? // empty)' "$event_path")"
+          repository="$(jq -r '(.repository.full_name? // empty)' "$event_path")"
+
+          if [[ -z "$event_kind" || -z "$title" || -z "$author" || -z "$url" || -z "$repository" ]]; then
+            echo "The GitHub event payload is missing notification fields; skipping notification."
+            exit 0
+          fi
+
+          message="$(printf '%s opened\n\nTitle: %s\nAuthor: %s\nURL: %s\nRepository: %s' \
+            "$event_kind" "$title" "$author" "$url" "$repository")"
+
+          curl --fail --silent --show-error \
+            --request POST \
+            --url "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}"
